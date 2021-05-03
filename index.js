@@ -1,8 +1,8 @@
 exports.automation = async (event, context) => {
 
   const puppeteer = require('puppeteer');
-  const moment = require('moment');
-  moment.locale('us');
+  const moment = require('moment-timezone');
+  moment.tz.setDefault('Europe/Berlin');
 
   const date = moment().add(8, 'days');
   const dateString = date.format("YYYY-MM-DD");
