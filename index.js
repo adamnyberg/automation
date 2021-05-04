@@ -4,10 +4,16 @@ exports.automation = async (event, context) => {
   const moment = require('moment-timezone');
   moment.tz.setDefault('Europe/Berlin');
 
+  const BOOK_DAYS = [
+    1,
+    3,
+    4
+  ];
+
   const date = moment().add(8, 'days');
   const dateString = date.format("YYYY-MM-DD");
   const timeString = '19:00'.replace(':', '\\:');
-  if (!(date.weekday() === 1 || date.weekday() === 3)) {
+  if (!BOOK_DAYS.includes(date.weekday())) {
     console.log('Wrong day, canceling.')
     return;
   }
