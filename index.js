@@ -1,5 +1,6 @@
 const { WebClient } = require("@slack/web-api");
 const puppeteer = require("puppeteer");
+const { Storage } = require("@google-cloud/storage");
 
 exports.automation = async (event, context) => {
   // Config (weekdays and timespan)
@@ -70,12 +71,18 @@ exports.automation = async (event, context) => {
 
     if (spots.length > 0) {
       // Fetch stored spots
-      // const storedSpots = await getStoredSpots();
+      const storedSpots = await getStoredSpots();
 
       // Check if there are any new spots
+      const newSpots = spots.filter(
+        (spot) =>
+          !storedSpots.some((storedSpot) => compareSpots(spot, storedSpot))
+      );
 
-      await notifySlack(spots);
-      await storeSpots(spots);
+      if (newSpots.length > 0) {
+        await notifySlack(spots);
+        await storeSpots(spots);
+      }
     }
   } catch (e) {
     console.error(e);
@@ -139,8 +146,27 @@ async function getSpotsOnPage(page, date, pageNr, startHour) {
   return availableSpots;
 }
 
-async function getStoredSpots() {}
-async function storeSpots() {}
+const STORED_SPOTS_FILE_NAME = "spots.json";
+const storage = new Storage({
+  projectId: "automation-312415",
+});
+const bucket = storage.bucket("tennis-spots");
+
+async function getStoredSpots() {
+  const file = bucket.file(STORED_SPOTS_FILE_NAME);
+  const [exists] = await file.exists();
+  if (exists) {
+    const data = await file.download();
+    return JSON.parse(data.toString());
+  } else {
+    return [];
+  }
+}
+
+async function storeSpots(spots) {
+  const file = bucket.file(STORED_SPOTS_FILE_NAME);
+  file.save(JSON.stringify(spots));
+}
 
 async function notifySlack(spots) {
   const web = new WebClient(process.env.SLACK_TOKEN);
@@ -156,7 +182,6 @@ async function notifySlack(spots) {
       .join("\n");
 
   try {
-    // Use the `chat.postMessage` method to send a message from this app
     await web.chat.postMessage({
       channel: "#available-spots",
       text,
@@ -165,4 +190,10 @@ async function notifySlack(spots) {
   } catch (error) {
     console.log(error);
   }
+}
+
+function compareSpots(a, b) {
+  return (
+    Object.entries(a).sort().toString() === Object.entries(b).sort().toString()
+  );
 }
