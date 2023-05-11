@@ -1,166 +1,168 @@
+const { WebClient } = require("@slack/web-api");
+const puppeteer = require("puppeteer");
+
 exports.automation = async (event, context) => {
-  const puppeteer = require("puppeteer-extra");
+  // Config (weekdays and timespan)
+  const BOOK_DAYS = [
+    { day: 1, startHour: 18 }, // Monday
+    { day: 2, startHour: 18 }, // Tuesday
+    { day: 3, startHour: 18 }, // Wednesday
+    { day: 4, startHour: 18 }, // Thursday
+    { day: 5, startHour: 18 }, // Friday
+    // { day: 6, startHour: 10 }, // Saturday
+    // { day: 7, startHour: 10 }, // Sunday
+  ];
+
+  // Go to today
   const moment = require("moment-timezone");
   moment.tz.setDefault("Europe/Berlin");
 
-  const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-  puppeteer.use(StealthPlugin());
-  const AdblockerPlugin = require("puppeteer-extra-plugin-adblocker");
-  puppeteer.use(AdblockerPlugin({ blockTrackers: true }));
-
-  const BOOK_DAYS = [
-    { day: 1, time: "19:00", hours: 1 }, // Monday
-    { day: 3, time: "19:00", hours: 1 }, // Wednesday
-    { day: 4, time: "19:00", hours: 1 }, // Thursday
-    { day: 5, time: "19:00", hours: 1 }, // Friday
-    { day: 6, time: "11:00", hours: 2 }, // Saturday
-    { day: 7, time: "11:00", hours: 2 }, // Sunday
-  ];
-
-  const date = moment().add(8, "days");
-  const dateString = date.format("YYYY-MM-DD");
-  console.log(date.isoWeekday());
-  const foundDay = BOOK_DAYS.find(
-    (element) => element.day === date.isoWeekday()
-  );
-  if (!foundDay) {
-    console.log("Wrong day, canceling.");
-    return;
-  }
-  let timeString = foundDay.time.replace(":", "\\:");
-
   const browser = await puppeteer.launch({
-    headless: false,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-infobars",
-      "--window-position=0,0",
-      "--ignore-certifcate-errors",
-      "--ignore-certifcate-errors-spki-list",
-      '--user-agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3312.0 Safari/537.36"',
-    ],
+    headless: "new",
+    args: ["--no-sandbox"],
   });
+  const page = await browser.newPage();
+
+  await page.setViewport({
+    width: 1900,
+    height: 1080,
+    deviceScaleFactor: 1,
+  });
+
+  function handleClose(msg) {
+    console.log(msg);
+    page.close();
+    browser.close();
+    process.exit(1);
+  }
+
+  process.on("uncaughtException", () => {
+    handleClose(`I crashed`);
+  });
+
+  process.on("unhandledRejection", () => {
+    handleClose(`I was rejected`);
+  });
+
+  await login(page);
+
   try {
-    const page = await browser.newPage();
-    await page.setViewport({
-      width: 1900,
-      height: 1080,
-      deviceScaleFactor: 1,
-    });
+    const pagesNrs = [2, 3, 4, 5];
+    const days = [moment(), moment().add(1, "days")];
+    const spots = [];
 
-    function handleClose(msg) {
-      console.log(msg);
-      page.close();
-      browser.close();
-      process.exit(1);
-    }
-
-    process.on("uncaughtException", () => {
-      handleClose(`I crashed`);
-    });
-
-    process.on("unhandledRejection", () => {
-      handleClose(`I was rejected`);
-    });
-
-    // Login
-    await page.goto("https://ssl.forumedia.eu/zhs-courtbuchung.de/");
-    if (await page.$("#login_block")) {
-      console.debug("Start Login");
-
-      await page.$eval("#login", (el) => (el.value = "adamnyberg"));
-      await page.$eval("#password", (el) => (el.value = "34vr0z&OX8t65J0dEp"));
-      await page.$eval('form[name="login"]', (form) => form.submit());
-      await page.waitForTimeout(1000);
-    }
-
-    if (await page.$("#login_block_auth")) {
-      console.debug("Login succeded");
-    } else {
-      console.debug("Login failed");
-    }
-
-    // Book
-    let bookingSucceded = false;
-    let areaId = 6;
-    let bookingHours = foundDay.hours;
-
-    while (!bookingSucceded && bookingHours >= 1) {
-      if (areaId > 13) {
-        break;
-      }
-      console.debug(
-        `Trying to book: date=${dateString}, time=${timeString}, areaId=${areaId}`
+    for (const day of days) {
+      const todayString = day.format("YYYY-MM-DD");
+      const foundDay = BOOK_DAYS.find(
+        (element) => element.day === day.isoWeekday()
       );
 
-      const bookURL = `https://ssl.forumedia.eu/zhs-courtbuchung.de/reservations.php?action=showRevervations&type_id=1&date=${dateString}&page=3`;
-      await page.goto(bookURL);
-      await page.waitForTimeout(1000);
-
-      const checkboxSelector = `#order_el_${areaId}_${timeString}`;
-      if (await page.$(checkboxSelector)) {
-        await page.evaluate(
-          ({ checkboxSelector }) => {
-            const element = document.querySelector(checkboxSelector);
-            element.click();
-            element.form.submit();
-          },
-          { checkboxSelector }
+      for (const pageNr of pagesNrs) {
+        const availableSpots = await getSpotsOnPage(
+          page,
+          todayString,
+          pageNr,
+          foundDay.startHour
         );
-
-        await page.waitForNavigation();
-
-        if (await page.$('input[value="Bestätigen"]')) {
-          console.debug("Select of time succeded");
-          await page.$eval('form[name="order"]', (form) => form.submit());
-        } else {
-          console.debug("Select of time failed");
-          continue;
-        }
-        await page.waitForTimeout(2000);
-
-        await page.screenshot({ path: "screenshot.png" });
-
-        if (
-          (await page.$eval(".content h2", (element) => element.innerHTML)) ===
-          "Vielen Dank"
-        ) {
-          console.log(
-            `Booking completed: date=${dateString}, time=${timeString}, areaId=${
-              areaId - 1
-            }`
-          );
-          bookingSucceded = true;
-          // Lower hours
-          bookingHours--;
-          // Update time string
-          timeString = timeString.split("");
-          timeString[1] = (parseInt(timeString[1]) + 1).toString();
-          timeString = timeString.join("");
-          // Lower area ID
-          areaId--;
-          console.log("bookingHours", bookingHours);
-          console.log("timeString", timeString);
-        } else {
-          console.debug("Booking failed");
-          continue;
-        }
-      } else {
-        console.debug("Non-bookable time, continuing");
+        spots.push(...availableSpots);
       }
-      areaId++;
     }
 
-    if (bookingSucceded) {
-      console.log("All bookings done.");
-    } else {
-      console.log("No booking made. No spots available.");
-    }
+    if (spots.length > 0) {
+      // Fetch stored spots
+      // const storedSpots = await getStoredSpots();
 
-    await browser.close();
+      // Check if there are any new spots
+
+      await notifySlack(spots);
+      await storeSpots(spots);
+    }
   } catch (e) {
     console.error(e);
     await browser.close();
   }
+  browser.close();
+
+  // Check if there are any available spots
+  // If yes, notify slack channel
 };
+
+async function login(page) {
+  // Login
+  await page.goto("https://ssl.forumedia.eu/zhs-courtbuchung.de/");
+  if (await page.$("#login_block")) {
+    console.debug("Start Login");
+
+    await page.$eval("#login", (el) => (el.value = "adamnyberg"));
+    await page.$eval("#password", (el) => (el.value = "34vr0z&OX8t65J0dEp"));
+    await page.$eval('form[name="login"]', (form) => form.submit());
+    await page.waitForTimeout(1000);
+  }
+
+  if (await page.$("#login_block_auth")) {
+    console.debug("Login succeded");
+  } else {
+    console.debug("Login failed");
+  }
+}
+
+async function getSpotsOnPage(page, date, pageNr, startHour) {
+  // console.debug(
+  //   `Checking: date=${date}, startHour=${startHour}, page=${pageNr}`
+  // );
+  const availableSpots = [];
+
+  const bookURL = `https://ssl.forumedia.eu/zhs-courtbuchung.de/reservations.php?action=showRevervations&type_id=1&date=${date}&page=${pageNr}`;
+  await page.goto(bookURL);
+  const ids = [];
+
+  const availableSpotsHandle = await page.$$("input[type=checkbox]");
+  for (const spot of availableSpotsHandle) {
+    const jsHandle = await spot.getProperty("id");
+    ids.push(await jsHandle.jsonValue());
+  }
+  // filter all times before startHour
+  const filtered = ids.filter((id) => {
+    const hour = id.split("_")[3].split(":")[0];
+    return hour >= startHour;
+  });
+
+  filtered.forEach((spot) => {
+    let courtNr = spot.split("_")[2];
+    if (courtNr === "57") {
+      courtNr = "22";
+    }
+    const time = spot.split("_")[3];
+    availableSpots.push({ date, courtNr, time });
+  });
+
+  return availableSpots;
+}
+
+async function getStoredSpots() {}
+async function storeSpots() {}
+
+async function notifySlack(spots) {
+  const web = new WebClient(process.env.SLACK_TOKEN);
+  // The current date
+  const currentTime = new Date().toTimeString();
+
+  const text =
+    "<!channel> Available spots \n" +
+    spots
+      .map((spot) => {
+        return `Court ${spot.courtNr} at ${spot.time} on ${spot.date}`;
+      })
+      .join("\n");
+
+  try {
+    // Use the `chat.postMessage` method to send a message from this app
+    await web.chat.postMessage({
+      channel: "#available-spots",
+      text,
+    });
+    console.log("Slack msg: ", text.replace(/\n/g, " "));
+  } catch (error) {
+    console.log(error);
+  }
+}

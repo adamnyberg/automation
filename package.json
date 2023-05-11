@@ -4,16 +4,16 @@
   "description": "LoveIsComic Puppeteer Script",
   "main": "index.js",
   "scripts": {
-    "test": "node run.js"
+    "automation": "SLACK_TOKEN='xoxb-5242475520277-5258104828161-jX1wkwEXUv1BU7eYi6uO7q5q' node -e 'require(\"./index\").automation()'",
+    "deploy": "gcloud functions deploy check-tennis --gen2 --runtime=nodejs18 --region=europe-central2 --source=. --entry-point=automation --trigger-topic=automation-tennis --memory=1024MB --max-instances=10 --set-env-vars=SLACK_TOKEN=xoxb-5242475520277-5258104828161-jX1wkwEXUv1BU7eYi6uO7q5q"
   },
   "author": "Adam Nyberg",
   "license": "Private",
   "dependencies": {
+    "@slack/events-api": "^3.0.1",
+    "@slack/web-api": "^6.8.1",
     "moment": "^2.29.1",
     "moment-timezone": "^0.5.33",
-    "puppeteer": "^9.1.1",
-    "puppeteer-extra": "^3.1.18",
-    "puppeteer-extra-plugin-adblocker": "^2.11.11",
-    "puppeteer-extra-plugin-stealth": "^2.7.8"
+    "puppeteer": "^20.1.2"
   }
 }
