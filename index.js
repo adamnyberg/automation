@@ -1,6 +1,7 @@
 const { WebClient } = require("@slack/web-api");
 const puppeteer = require("puppeteer");
 const { Storage } = require("@google-cloud/storage");
+const moment = require("moment-timezone");
 
 exports.automation = async (event, context) => {
   // Config (weekdays and timespan)
@@ -10,12 +11,11 @@ exports.automation = async (event, context) => {
     { day: 3, startHour: 18 }, // Wednesday
     { day: 4, startHour: 18 }, // Thursday
     { day: 5, startHour: 18 }, // Friday
-    // { day: 6, startHour: 10 }, // Saturday
-    // { day: 7, startHour: 10 }, // Sunday
+    { day: 6, startHour: 21 }, // Saturday
+    { day: 7, startHour: 21 }, // Sunday
   ];
 
   // Go to today
-  const moment = require("moment-timezone");
   moment.tz.setDefault("Europe/Berlin");
 
   const browser = await puppeteer.launch({
@@ -82,24 +82,23 @@ exports.automation = async (event, context) => {
       if (newSpots.length > 0) {
         await notifySlack(spots);
         await storeSpots(spots);
+      } else {
+        console.log("No new spots found");
       }
+    } else {
+      console.log("No spots found");
     }
   } catch (e) {
     console.error(e);
     await browser.close();
   }
-  browser.close();
-
-  // Check if there are any available spots
-  // If yes, notify slack channel
+  await browser.close();
 };
 
 async function login(page) {
   // Login
   await page.goto("https://ssl.forumedia.eu/zhs-courtbuchung.de/");
   if (await page.$("#login_block")) {
-    console.debug("Start Login");
-
     await page.$eval("#login", (el) => (el.value = "adamnyberg"));
     await page.$eval("#password", (el) => (el.value = "34vr0z&OX8t65J0dEp"));
     await page.$eval('form[name="login"]', (form) => form.submit());
@@ -107,7 +106,6 @@ async function login(page) {
   }
 
   if (await page.$("#login_block_auth")) {
-    console.debug("Login succeded");
   } else {
     console.debug("Login failed");
   }
@@ -170,14 +168,14 @@ async function storeSpots(spots) {
 
 async function notifySlack(spots) {
   const web = new WebClient(process.env.SLACK_TOKEN);
-  // The current date
-  const currentTime = new Date().toTimeString();
 
   const text =
     "<!channel> Available spots \n" +
     spots
       .map((spot) => {
-        return `Court ${spot.courtNr} at ${spot.time} on ${spot.date}`;
+        const dayString =
+          spot.date === moment().format("YYYY-MM-DD") ? "Today" : "Tomorrow";
+        return `${dayString} at ${spot.time} on court ${spot.courtNr}`;
       })
       .join("\n");
 
