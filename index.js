@@ -99,8 +99,8 @@ async function login(page) {
   // Login
   await page.goto("https://ssl.forumedia.eu/zhs-courtbuchung.de/");
   if (await page.$("#login_block")) {
-    await page.$eval("#login", (el) => (el.value = "adamnyberg"));
-    await page.$eval("#password", (el) => (el.value = "34vr0z&OX8t65J0dEp"));
+    await page.$eval("#login", (el) => (el.value = "username"));
+    await page.$eval("#password", (el) => (el.value = "password"));
     await page.$eval('form[name="login"]', (form) => form.submit());
     await page.waitForTimeout(1000);
   }
@@ -146,7 +146,7 @@ async function getSpotsOnPage(page, date, pageNr, startHour) {
 
 const STORED_SPOTS_FILE_NAME = "spots.json";
 const storage = new Storage({
-  projectId: "automation-312415",
+  projectId: "gcp-project",
 });
 const bucket = storage.bucket("tennis-spots");
 
